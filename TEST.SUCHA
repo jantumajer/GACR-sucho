@@ -1,0 +1,60 @@
+library(dplR)
+library(readxl)
+library(treeclim)
+
+# Funkce pro otestovani intenzity sucha pomoci korelacni analyzy, SEA a vizualni prohlidky signatur v chronologii
+# Vstupni parametry : NEDETRENDOVANE serie, klimaticka CRU data (T+P), stanicni klimaticka data (T+P), vypis suchych let pro SEA
+# 2 varianty vypoctu
+  # 1] Vypocte se chronologie - koreluje se s klimatem + pomoci ni se pocita SEA (variant="Standard")
+  # 2] Vypocte se chronologie - parametrizuje se linerni model mezi chronologii a Jun-Jul teplotou (dominantni klimaticka korelace)
+  # ... puvodni chronologie se prepise residualy tohoto modelu - nova chronologie se koreluje s klimatem + pocita SEA
+# Postup 2 ma silnejsi signal sucha nez 1
+
+TEST.SUCHA <- function(trw, CRU.temp, CRU.prec, STAN.temp, STAN.prec, suche.roky, variant="Standard"){
+  
+  # 1] Dendroklimatologie
+  detrendovane.serie <- detrend(trw, method = "Spline", nyrs=70)
+  chronologie <- chron(detrendovane.serie, biweight=T)
+  
+  # Pokud se zada variant="Residual", je pred vypoctem jakychkoliv statistik sestaven linearni model mezi standardni chronologii
+  # a prumernou teplotou za cerven + cervenec. Nasledne je chronologie nahrazena residuly tohoto modelu
+  
+  if (variant == "Residual") { 
+          ZAVISLA <- chronologie[rownames(chronologie) %in% c(1901: 2010),"xxxstd"]
+          
+            colnames(CRU.temp) <- c("yr", "led", "uno", "bre", "dub", "kve", "cer", "cer2", "srp", "zar", "rij", "lis", "pro")
+            CRU.temp <- data.frame(CRU.temp)
+          KLIMA <- rowMeans(CRU.temp[CRU.temp$yr %in% c(1901: 2010), c("cer", "cer2")]  )
+          
+          MODEL <- lm(ZAVISLA ~ KLIMA)
+          
+          RESIDUALS <- data.frame(MODEL$residuals)
+          rownames(RESIDUALS) <- c(1901:2010)
+          chronologie <- cbind(RESIDUALS, chronologie[rownames(chronologie) %in% c(1901: 2010),"samp.depth"])
+          colnames(chronologie) <- c("xxxstd", "samp.depth")
+                            }
+  
+  klima.CRU <- list(TEMP.CRU=data.frame(CRU.temp),
+                    PREC.CRU=data.frame(CRU.prec))
+  
+  klima.STAN <- list(TEMP.STAN=data.frame(STAN.temp), 
+                    PREC.STAN=data.frame(STAN.prec))
+  
+  klimaticka.korelace.CRU <- dcc(chronologie, klima.CRU)
+  klimaticka.korelace.STAN <- dcc(chronologie, klima.STAN)
+  
+ print(plot(klimaticka.korelace.CRU, ylab = "CRU"))
+
+ print(plot(klimaticka.korelace.STAN, xlab = "STAN"))
+
+ #2] SEA
+ SEA <- sea(chronologie, key=suche.roky, lag=3)
+ 
+ foo <- SEA$se.unscaled; names(foo) <- SEA$lag
+ print(barplot(foo, col=ifelse(SEA$p < 0.05, "grey30", "grey75")))
+ 
+ # 3] Vykresleni chronologie
+ plot(chronologie$xxxstd ~ rownames(chronologie), xlim = c(1950, 2010), type="l")
+ print(chronologie)
+
+}
